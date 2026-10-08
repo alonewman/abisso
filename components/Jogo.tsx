@@ -182,6 +182,54 @@ function CartaoPergunta(props: {
   );
 }
 
+/** Tela de início: o krill espera na superfície até o jogador apertar DESCER. */
+function useInicio(onSuperficie: (v: boolean) => void, pronto: boolean) {
+  const [cont, setCont] = useState<number | null>(null);
+  const [iniciou, setIniciou] = useState(false);
+  const descendo = cont !== null || iniciou;
+  useEffect(() => {
+    onSuperficie(pronto && !descendo);
+    return () => onSuperficie(false);
+  }, [pronto, descendo, onSuperficie]);
+  useEffect(() => {
+    if (cont === null) return;
+    if (cont <= 0) {
+      setCont(null);
+      setIniciou(true);
+      return;
+    }
+    const id = setTimeout(() => setCont(cont - 1), 650);
+    return () => clearTimeout(id);
+  }, [cont]);
+  const iniciar = () => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) setIniciou(true);
+    else setCont(3);
+  };
+  const reiniciar = useCallback(() => {
+    setCont(null);
+    setIniciou(false);
+  }, []);
+  return { cont, iniciou, iniciar, reiniciar };
+}
+
+function TelaInicio(props: { titulo: string; linhas: string[]; cont: number | null; onDescer: () => void }) {
+  const { titulo, linhas, cont, onDescer } = props;
+  return (
+    <div className="bloco">
+      <pre className="acc">{caixa([titulo, "", ...linhas])}</pre>
+      {cont === null ? (
+        <button className="btn btn-descer" onClick={onDescer} autoFocus>
+          [ DESCER &gt;&gt; ]
+        </button>
+      ) : (
+        <div className="contagem" key={cont} aria-live="assertive">
+          {cont > 0 ? cont : "!"}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CartaoSemAr({ resposta }: { resposta?: string }) {
   return (
     <div className="bloco" role="status">
@@ -200,6 +248,7 @@ function Diario(props: {
   cid: string;
   dia: number | null;
   ar: number;
+  onSuperficie: (v: boolean) => void;
   onProfundidade: (m: number) => void;
   onGanho: (g: number) => void;
   onHistorico: (h: Historico) => void;
@@ -207,7 +256,7 @@ function Diario(props: {
   onTrocarDia: (n: number | null) => void;
   onLivre: () => void;
 }) {
-  const { cid, dia, ar, onProfundidade, onGanho, onHistorico, onArmazenamento, onTrocarDia, onLivre } = props;
+  const { cid, dia, ar, onSuperficie, onProfundidade, onGanho, onHistorico, onArmazenamento, onTrocarDia, onLivre } = props;
   const [partida, setPartida] = useState<Partida | null>(null);
   const [mostrando, setMostrando] = useState<string | null>(null);
   const [resultados, setResultados] = useState<Record<string, Resultado>>({});
@@ -253,6 +302,11 @@ function Diario(props: {
   const feitas = partida ? partida.perguntas.filter((p) => respondidas[p.id]).length : 0;
   const proxima = partida?.perguntas.find((p) => !respondidas[p.id]) ?? null;
   const tudoRespondido = !!partida && feitas === total;
+  const inicio = useInicio(onSuperficie, !!partida && feitas === 0 && !tudoRespondido);
+  const { reiniciar: reiniciarInicio } = inicio;
+  useEffect(() => {
+    reiniciarInicio();
+  }, [dia, cid, reiniciarInicio]);
 
   // Ao terminar as 7, avisa o servidor e busca a comparação com os outros jogadores.
   useEffect(() => {
@@ -487,7 +541,26 @@ function Diario(props: {
     );
   }
 
-  // 3) pergunta atual
+  // 3) tela de início (nenhuma pergunta respondida ainda)
+  if (feitas === 0 && !inicio.iniciou) {
+    return (
+      <div>
+        {cabecalho}
+        <TelaInicio
+          titulo={`MERGULHO #${partida.numero}`}
+          linhas={[
+            `${total} perguntas`,
+            ar > 0 ? `${ar} segundos de ar por pergunta` : "sem relógio de ar",
+            "resposta rara = mergulho fundo",
+          ]}
+          cont={inicio.cont}
+          onDescer={inicio.iniciar}
+        />
+      </div>
+    );
+  }
+
+  // 4) pergunta atual
   return (
     <div>
       {cabecalho}
@@ -513,8 +586,14 @@ function Diario(props: {
 /* Mergulho livre                                                      */
 /* ------------------------------------------------------------------ */
 
-function Livre(props: { cid: string; ar: number; onProfundidade: (m: number) => void; onGanho: (g: number) => void }) {
-  const { cid, ar, onProfundidade, onGanho } = props;
+function Livre(props: {
+  cid: string;
+  ar: number;
+  onSuperficie: (v: boolean) => void;
+  onProfundidade: (m: number) => void;
+  onGanho: (g: number) => void;
+}) {
+  const { cid, ar, onSuperficie, onProfundidade, onGanho } = props;
   const [pergunta, setPergunta] = useState<Pergunta | null>(null);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [totalSessao, setTotalSessao] = useState(0);
@@ -550,6 +629,7 @@ function Livre(props: { cid: string; ar: number; onProfundidade: (m: number) => 
 
   const [semAr, setSemAr] = useState(false);
   const travado = useRef(false);
+  const inicio = useInicio(onSuperficie, !!pergunta && respondidas === 0);
 
   const enviar = async (texto: string, info: { expirou: boolean; ms: number }) => {
     if (!pergunta || travado.current) return;
@@ -596,6 +676,20 @@ function Livre(props: { cid: string; ar: number; onProfundidade: (m: number) => 
     );
   }
   if (!pergunta) return <div className="bloco dim pisca">descendo</div>;
+
+  if (respondidas === 0 && !inicio.iniciou) {
+    return (
+      <div>
+        <div className="dim">MERGULHO LIVRE</div>
+        <TelaInicio
+          titulo="MERGULHO LIVRE"
+          linhas={["perguntas sem limite", ar > 0 ? `${ar} segundos de ar por pergunta` : "sem relógio de ar"]}
+          cont={inicio.cont}
+          onDescer={inicio.iniciar}
+        />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -753,12 +847,12 @@ function Ajuda() {
       <div className="bloco">
         <div className="dim">O AR</div>
         <p>
-          Cada pergunta tem um relógio de <span className="acc">ar</span> (30 segundos, por padrão). Se o ar acabar,
+          Cada pergunta tem um relógio de <span className="acc">ar</span> (25 segundos, por padrão). Se o ar acabar,
           o jogo envia o que você já digitou; se estiver vazio ou não valer, a pergunta fica com 0 m. O relógio para
           enquanto a resposta é conferida. Seu tempo total aparece no final e no texto de compartilhar.
         </p>
         <p className="dim">
-          Prefere jogar sem pressa? Use o botão [AR] no topo para trocar entre 30 s, 20 s, 45 s ou sem relógio. A
+          Prefere jogar sem pressa? Use o botão [AR] no topo para trocar entre 25 s, 15 s, 40 s ou sem relógio. A
           pontuação é a mesma.
         </p>
       </div>
@@ -823,10 +917,11 @@ export default function Jogo() {
   const [armazenamento, setArmazenamento] = useState<"redis" | "memoria">("redis");
   const [profundidade, setProfundidade] = useState(0);
   const [local, setLocal] = useState(true);
-  const [ar, setAr] = useState(30);
+  const [ar, setAr] = useState(25);
   const [ganho, setGanho] = useState({ valor: 0, chave: 0 });
   const [treme, setTreme] = useState(false);
   const [aviso, setAviso] = useState(false);
+  const [superficie, setSuperficie] = useState(false);
 
   useEffect(() => {
     setCid(obterCid());
@@ -838,8 +933,8 @@ export default function Jogo() {
       .catch(() => undefined);
   }, []);
 
-  const metros = useContagem(profundidade);
-  const fundo = corDeFundo(metros);
+  const metros = useContagem(profundidade - (superficie ? 14 : 0));
+  const fundo = corDeFundo(Math.max(0, metros));
 
   const trocarAr = () => {
     const i = OPCOES_AR.indexOf(ar as (typeof OPCOES_AR)[number]);
@@ -887,7 +982,7 @@ export default function Jogo() {
   };
 
   const mostrarCena = aba === "diario" || aba === "livre";
-  const p = Math.min(1, metros / MAX_PROFUNDIDADE);
+  const p = Math.min(1, Math.max(0, metros) / MAX_PROFUNDIDADE);
   const luz = Math.max(0, 1 - metros / 1500);
 
   return (
@@ -935,6 +1030,7 @@ export default function Jogo() {
               cid={cid}
               dia={dia}
               ar={ar}
+              onSuperficie={setSuperficie}
               onProfundidade={setProfundidade}
               onGanho={aoGanhar}
               onHistorico={setHistorico}
@@ -943,7 +1039,7 @@ export default function Jogo() {
               onLivre={() => irPara("livre")}
             />
           )}
-          {aba === "livre" && cid && <Livre cid={cid} ar={ar} onProfundidade={setProfundidade} onGanho={aoGanhar} />}
+          {aba === "livre" && cid && <Livre cid={cid} ar={ar} onSuperficie={setSuperficie} onProfundidade={setProfundidade} onGanho={aoGanhar} />}
           {aba === "arquivo" && <Arquivo hoje={hoje} historico={historico} onJogar={abrirDia} />}
           {aba === "stats" && <Estatisticas historico={historico} hoje={hoje} />}
           {aba === "ajuda" && <Ajuda />}

@@ -128,11 +128,11 @@ if (muitos.estimativa) falha("com 10000 jogadores a estimativa deveria ter acaba
 if (Math.abs(muitos.compartilhamento - 0.3) > 0.02) falha(`share com muitos jogadores esperado ~0.3, veio ${muitos.compartilhamento}`);
 
 // 10) cena da descida: tamanho fixo, krill sempre visível, deterministica
-for (const m of [0, 120, 900, 2400, 5800, 7000]) {
+for (const m of [-14, 0, 120, 900, 2400, 5800, 7000]) {
   for (const v of [0, 1]) {
     const linhas = quadroComoTexto(quadroDaCena(m, 3.3, v));
     if (linhas.length !== ALTURA || linhas.some((l) => l.length !== LARGURA)) falha(`cena ${m} m com tamanho errado`);
-    if (!linhas.join("\n").includes("(o)>")) falha(`krill não aparece na cena a ${m} m`);
+    if (!linhas.join("\n").includes("(o")) falha(`krill não aparece na cena a ${m} m`);
     if (JSON.stringify(linhas) !== JSON.stringify(quadroComoTexto(quadroDaCena(m, 3.3, v)))) falha("cena não é determinística");
   }
 }

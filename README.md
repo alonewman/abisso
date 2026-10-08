@@ -16,7 +16,8 @@ todo mundo que jogou aquele mesmo mergulho** (percentil + histograma), com texto
 - **98 perguntas** no banco (14 dias sem repetir), algumas com letra obrigatória, cada uma com dezenas de respostas ranqueadas.
 - **Cena de descida em ASCII**: o krill nada enquanto o cenário passa por ele (neve marinha, criaturas de cada zona,
   régua de profundidade, bolhas, riscos de velocidade). A luz some e a tela escurece conforme você desce.
-- **Relógio de ar**: cada pergunta tem 30 s (alternável para 20 s, 45 s ou sem relógio, no botão `[AR]`). Se o ar
+- **Botão DESCER**: o krill espera na superfície (barco, sol, céu) e a contagem 3-2-1 começa o mergulho.
+- **Relógio de ar**: cada pergunta tem 25 s (alternável para 15 s, 40 s ou sem relógio, no botão `[AR]`). Se o ar
   acabar, vale o que você digitou; se estiver vazio ou inválido, a pergunta fica com 0 m. O tempo total aparece no
   final e no texto de compartilhar. Respeita `prefers-reduced-motion`.
 - Animações: letras digitadas, contagem dos metros, "+X m" flutuante, tremor em respostas quase únicas, aviso ao

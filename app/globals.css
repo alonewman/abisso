@@ -259,10 +259,8 @@ pre {
   width: max-content;
   max-width: 100%;
   margin: 10px 0 6px;
-  background: rgba(0, 8, 16, 0.38);
 }
 .cena pre {
-  line-height: 1.1;
   overflow: hidden;
 }
 .cena-hud {
@@ -272,31 +270,34 @@ pre {
 .c-borda {
   color: var(--dim);
 }
-.c-sup {
-  color: #9be7ff;
+.c-sup { color: #bff2ff; }
+.c-raio { color: rgba(255, 244, 180, 0.5); }
+.c-neve { color: rgba(213, 243, 246, 0.6); }
+.c-regua { color: rgba(213, 243, 246, 0.55); }
+.c-cri { color: #d3b4ff; }
+.c-brilho { color: #ffe066; text-shadow: 0 0 6px #ffe066; }
+.c-bolha { color: #b9ecff; }
+.c-vel { color: rgba(213, 243, 246, 0.35); }
+.c-krill { color: #ff9a62; font-weight: bold; }
+.c-olho { color: #fff; font-weight: bold; }
+.c-rocha { color: #3b4a5a; }
+.c-lanterna { color: rgba(255, 240, 170, 0.55); }
+.c-sol { color: #ffd84d; }
+.c-nuvem { color: #ffffff; }
+.c-barco { color: #e8c8a0; }
+.f-ceu { background: #4aa3d8; }
+.f-a0 { background: #0b6a86; }
+.f-a1 { background: #08506b; }
+.f-a2 { background: #053850; }
+.f-a3 { background: #032338; }
+.f-a4 { background: #020f1e; }
+.cena {
+  border: 0;
 }
-.c-raio {
-  color: rgba(255, 244, 180, 0.55);
+.cena pre {
+  line-height: 1.15;
 }
-.c-neve {
-  color: rgba(213, 243, 246, 0.55);
-}
-.c-regua {
-  color: var(--dim);
-}
-.c-cri {
-  color: #c4a1ff;
-}
-.c-bolha {
-  color: #a5e3ff;
-}
-.c-vel {
-  color: rgba(213, 243, 246, 0.35);
-}
-.c-krill {
-  color: #ff9a62;
-  font-weight: bold;
-}
+.c-borda { color: var(--dim); }
 .ganho {
   position: absolute;
   left: 52%;
@@ -462,5 +463,45 @@ pre {
   }
   .app {
     transition: none;
+  }
+}
+
+/* ---------- tela de início ---------- */
+.inicio {
+  border: 1px dashed var(--acc);
+  padding: 10px 12px;
+  max-width: 440px;
+}
+.btn-descer {
+  font-size: 18px;
+  padding: 6px 10px;
+  margin-top: 8px;
+  animation: convida 1.6s ease-in-out infinite;
+}
+@keyframes convida {
+  50% {
+    transform: translateX(6px);
+  }
+}
+.contagem {
+  font-size: 40px;
+  text-align: center;
+  color: var(--warn);
+  animation: pulso 0.8s ease-out;
+}
+@keyframes pulso {
+  from {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-descer,
+  .contagem {
+    animation: none;
   }
 }

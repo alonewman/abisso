@@ -30,18 +30,18 @@ export function Cena({ metros, ganho, chaveGanho }: { metros: number; ganho: num
   const velocidade = reduz ? 0 : Math.min(1, Math.max(0, mem.current.v / 450));
 
   const quadro = quadroDaCena(metros, t, velocidade);
-  const zona = zonaDe(metros);
+  const zona = zonaDe(Math.max(0, metros));
   const borda = "+" + "-".repeat(LARGURA) + "+";
 
   return (
-    <div className="cena" role="img" aria-label={`Mergulho a ${formatar(metros)} metros: ${zona.nome}`}>
+    <div className="cena" role="img" aria-label={`Mergulho a ${formatar(Math.max(0, metros))} metros: ${zona.nome}`}>
       <pre aria-hidden="true">
         <span className="c-borda">{borda + "\n"}</span>
         {quadro.map((linha, y) => (
           <span key={y}>
             <span className="c-borda">|</span>
             {linha.map((trecho, i) => (
-              <span key={i} className={trecho.cls ? "c-" + trecho.cls : undefined}>
+              <span key={i} className={(trecho.cls ? "c-" + trecho.cls + " " : "") + (trecho.bg ? "f-" + trecho.bg : "")}>
                 {trecho.texto}
               </span>
             ))}
@@ -51,7 +51,7 @@ export function Cena({ metros, ganho, chaveGanho }: { metros: number; ganho: num
         <span className="c-borda">{borda}</span>
       </pre>
       <div className="cena-hud">
-        <span className="acc">{formatar(metros)} m</span> <span className="dim">· {zona.nome}</span>
+        <span className="acc">{formatar(Math.max(0, metros))} m</span> <span className="dim">· {zona.nome}</span>
       </div>
       {ganho > 0 && (
         <div key={chaveGanho} className="ganho" aria-hidden="true">

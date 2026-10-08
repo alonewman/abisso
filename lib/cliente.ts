@@ -131,14 +131,14 @@ export function dataBonita(iso: string): string {
 /* tempo gasto por pergunta (só neste navegador) e preferência do relógio de ar */
 const CHAVE_TEMPO = "abisso:tempo";
 
-export const OPCOES_AR = [30, 20, 45, 0] as const; // 0 = sem relógio
+export const OPCOES_AR = [25, 15, 40, 0] as const; // 0 = sem relógio
 
 export function lerAr(): number {
   try {
     const v = Number(localStorage.getItem(CHAVE_TEMPO));
-    return (OPCOES_AR as readonly number[]).includes(v) && localStorage.getItem(CHAVE_TEMPO) !== null ? v : 30;
+    return (OPCOES_AR as readonly number[]).includes(v) && localStorage.getItem(CHAVE_TEMPO) !== null ? v : 25;
   } catch {
-    return 30;
+    return 25;
   }
 }
 export function salvarAr(s: number) {
