@@ -1,0 +1,24 @@
+{
+  "name": "abisso",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ABISSO — o mergulho diário. Jogo de palavras em ASCII: quanto mais rara a resposta, mais fundo você vai.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "verificar": "tsx scripts/verificar.ts"
+  },
+  "dependencies": {
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "^19.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
