@@ -14,7 +14,13 @@ todo mundo que jogou aquele mesmo mergulho** (percentil + histograma), com texto
 - **Arquivo**: os últimos 30 mergulhos, para quem perdeu um dia.
 - **Estatísticas**: mergulhos feitos, profundidade média, melhor mergulho, sequência, onde você costuma parar.
 - **98 perguntas** no banco (14 dias sem repetir), algumas com letra obrigatória, cada uma com dezenas de respostas ranqueadas.
-- Visual todo em ASCII: coluna de profundidade com o krill descendo, bolhas, criatura da zona, histograma.
+- **Cena de descida em ASCII**: o krill nada enquanto o cenário passa por ele (neve marinha, criaturas de cada zona,
+  régua de profundidade, bolhas, riscos de velocidade). A luz some e a tela escurece conforme você desce.
+- **Relógio de ar**: cada pergunta tem 30 s (alternável para 20 s, 45 s ou sem relógio, no botão `[AR]`). Se o ar
+  acabar, vale o que você digitou; se estiver vazio ou inválido, a pergunta fica com 0 m. O tempo total aparece no
+  final e no texto de compartilhar. Respeita `prefers-reduced-motion`.
+- Animações: letras digitadas, contagem dos metros, "+X m" flutuante, tremor em respostas quase únicas, aviso ao
+  entrar em uma zona nova, revelação do ranking e do histograma.
 
 ## Rodar localmente
 
@@ -100,7 +106,8 @@ pontuação continua fazendo sentido (a 1ª da lista rasa, respostas fora da lis
 
 ```
 app/                 páginas e rotas de API (diario, responder, finalizar, livre)
-components/          interface (Jogo.tsx) e peças ASCII (ui.tsx)
+components/          interface (Jogo.tsx), cena da descida (Cena.tsx) e peças ASCII (ui.tsx)
+lib/cena.ts          motor da cena ASCII (função pura de profundidade, tempo e velocidade)
 lib/prompts.ts       banco de perguntas e sorteio diário
 lib/normalizar.ts    normalização e validação das respostas
 lib/estatisticas.ts  raridade e ranking das respostas (modelo + dicionário + jogadores)

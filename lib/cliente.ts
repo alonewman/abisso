@@ -7,6 +7,7 @@ export type Registro = {
   jogadores: number;
   aoVivo: boolean; // jogado no próprio dia
   respostas: number[]; // profundidade de cada uma das 7 respostas
+  tempoMs?: number; // tempo total do mergulho, quando medido
 };
 export type Historico = Record<number, Registro>;
 
@@ -125,4 +126,43 @@ export async function api<T>(url: string, corpo?: unknown): Promise<T> {
 export function dataBonita(iso: string): string {
   const [a, m, d] = iso.split("-");
   return `${d}/${m}/${a}`;
+}
+
+/* tempo gasto por pergunta (só neste navegador) e preferência do relógio de ar */
+const CHAVE_TEMPO = "abisso:tempo";
+
+export const OPCOES_AR = [30, 20, 45, 0] as const; // 0 = sem relógio
+
+export function lerAr(): number {
+  try {
+    const v = Number(localStorage.getItem(CHAVE_TEMPO));
+    return (OPCOES_AR as readonly number[]).includes(v) && localStorage.getItem(CHAVE_TEMPO) !== null ? v : 30;
+  } catch {
+    return 30;
+  }
+}
+export function salvarAr(s: number) {
+  try {
+    localStorage.setItem(CHAVE_TEMPO, String(s));
+  } catch {
+    /* ignora */
+  }
+}
+
+export function lerTempos(numero: number): Record<string, number> {
+  try {
+    const bruto = localStorage.getItem(`abisso:t:${numero}`);
+    return bruto ? (JSON.parse(bruto) as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+export function salvarTempo(numero: number, id: string, ms: number) {
+  try {
+    const t = lerTempos(numero);
+    if (t[id] === undefined) t[id] = Math.max(0, Math.round(ms));
+    localStorage.setItem(`abisso:t:${numero}`, JSON.stringify(t));
+  } catch {
+    /* ignora */
+  }
 }

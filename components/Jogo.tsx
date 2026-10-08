@@ -2,12 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LOGO, barra, caixa } from "@/lib/ascii";
+import { Cena } from "./Cena";
 import { MAX_PROFUNDIDADE, ZONAS, formatar, zonaDe } from "@/lib/zonas";
 import {
   api,
   dataBonita,
+  OPCOES_AR,
+  lerAr,
   lerHistorico,
   lerLivre,
+  lerTempos,
+  salvarAr,
+  salvarTempo,
   melhorSequencia,
   obterCid,
   salvarLivre,
@@ -21,9 +27,11 @@ import {
   Coluna,
   CriaturaDaZona,
   Histograma,
-  MiniBarra,
+  Oxigenio,
+  formatarTempo,
   textoCompartilhar,
   useContagem,
+  useDigitar,
   useRelogio,
   type Resultado,
 } from "./ui";
@@ -35,12 +43,12 @@ type Partida = {
   hoje: number;
   data: string;
   perguntas: Pergunta[];
-  respondidas: Record<string, { resposta: string; profundidade: number }>;
+  respondidas: Record<string, { resposta: string; profundidade: number; passou?: boolean }>;
   proximoEm: number;
   armazenamento: "redis" | "memoria";
 };
 type Fim = { total: number; percentil: number | null; jogadores: number; hist: number[]; faixa: number };
-type RespostaApi = Resultado & { ok: true };
+type RespostaApi = Resultado & { ok: true; passou?: boolean };
 
 const NOMES_ABAS: { id: Aba; rotulo: string }[] = [
   { id: "diario", rotulo: "DIÁRIO" },
@@ -58,6 +66,12 @@ function corDeFundo(metros: number): string {
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 
+function tempoTotal(numero: number, perguntas: Pergunta[]): number | undefined {
+  const t = lerTempos(numero);
+  if (!perguntas.every((p) => typeof t[p.id] === "number")) return undefined;
+  return perguntas.reduce((a, p) => a + t[p.id], 0);
+}
+
 /* ------------------------------------------------------------------ */
 /* Pergunta                                                            */
 /* ------------------------------------------------------------------ */
@@ -67,27 +81,71 @@ function CartaoPergunta(props: {
   pergunta: Pergunta;
   enviando: boolean;
   erro: string;
-  onEnviar: (texto: string) => void;
+  segundos: number; // 0 = sem relógio
+  onEnviar: (texto: string, info: { expirou: boolean; ms: number }) => void;
 }) {
-  const { rotulo, pergunta, enviando, erro, onEnviar } = props;
+  const { rotulo, pergunta, enviando, erro, segundos, onEnviar } = props;
   const [texto, setTexto] = useState("");
+  const [restante, setRestante] = useState(segundos);
   const campo = useRef<HTMLInputElement>(null);
+  const relogio = useRef({ inicio: 0, pausado: 0, pausadoEm: 0, expirou: false });
+  const textoRef = useRef("");
+  textoRef.current = texto;
+  const enviarRef = useRef(onEnviar);
+  enviarRef.current = onEnviar;
 
   useEffect(() => {
     setTexto("");
+    setRestante(segundos);
+    relogio.current = { inicio: Date.now(), pausado: 0, pausadoEm: 0, expirou: false };
     campo.current?.focus();
-  }, [pergunta.id]);
+  }, [pergunta.id, segundos]);
+
+  // o relógio para enquanto o servidor confere a resposta
+  useEffect(() => {
+    const r = relogio.current;
+    if (enviando) {
+      r.pausadoEm = Date.now();
+    } else if (r.pausadoEm) {
+      r.pausado += Date.now() - r.pausadoEm;
+      r.pausadoEm = 0;
+    }
+  }, [enviando]);
+
+  const decorrido = () => {
+    const r = relogio.current;
+    return Date.now() - r.inicio - r.pausado - (r.pausadoEm ? Date.now() - r.pausadoEm : 0);
+  };
+
+  useEffect(() => {
+    if (!segundos) return;
+    const id = setInterval(() => {
+      const r = relogio.current;
+      if (r.pausadoEm || r.expirou || !r.inicio) return;
+      const resta = segundos - decorrido() / 1000;
+      setRestante(Math.max(0, resta));
+      if (resta <= 0) {
+        r.expirou = true;
+        enviarRef.current(textoRef.current.trim(), { expirou: true, ms: segundos * 1000 });
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [segundos, pergunta.id]);
 
   const enviar = () => {
-    if (!enviando && texto.trim()) onEnviar(texto);
+    if (!enviando && texto.trim()) onEnviar(texto, { expirou: false, ms: decorrido() });
   };
 
   const linhas = [rotulo, "", pergunta.texto];
   if (pergunta.letra) linhas.push("", `>> comece com a letra ${pergunta.letra} <<`);
+  const caixaCompleta = caixa(linhas);
+  const digitada = useDigitar(caixaCompleta, 5);
+  const caixaVisivel = digitada + caixaCompleta.slice(digitada.length).replace(/[^\n]/g, " ");
 
   return (
     <div className="bloco">
-      <pre>{caixa(linhas)}</pre>
+      <pre aria-label={linhas.join(" ")}>{caixaVisivel}</pre>
+      {segundos > 0 && <Oxigenio restante={restante} total={segundos} />}
       <form
         className="linha-entrada"
         onSubmit={(e) => {
@@ -124,6 +182,16 @@ function CartaoPergunta(props: {
   );
 }
 
+function CartaoSemAr({ resposta }: { resposta?: string }) {
+  return (
+    <div className="bloco" role="status">
+      <pre className="bad">
+        {caixa(["O AR ACABOU!", "", resposta ? `"${resposta}" não foi aceita a tempo.` : "Sem resposta a tempo.", "", "PROFUNDIDADE  +0 m"])}
+      </pre>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Mergulho diário                                                     */
 /* ------------------------------------------------------------------ */
@@ -131,13 +199,15 @@ function CartaoPergunta(props: {
 function Diario(props: {
   cid: string;
   dia: number | null;
+  ar: number;
   onProfundidade: (m: number) => void;
+  onGanho: (g: number) => void;
   onHistorico: (h: Historico) => void;
   onArmazenamento: (m: "redis" | "memoria") => void;
   onTrocarDia: (n: number | null) => void;
   onLivre: () => void;
 }) {
-  const { cid, dia, onProfundidade, onHistorico, onArmazenamento, onTrocarDia, onLivre } = props;
+  const { cid, dia, ar, onProfundidade, onGanho, onHistorico, onArmazenamento, onTrocarDia, onLivre } = props;
   const [partida, setPartida] = useState<Partida | null>(null);
   const [mostrando, setMostrando] = useState<string | null>(null);
   const [resultados, setResultados] = useState<Record<string, Resultado>>({});
@@ -146,6 +216,7 @@ function Diario(props: {
   const [enviando, setEnviando] = useState(false);
   const [falhaCarga, setFalhaCarga] = useState("");
   const [copiado, setCopiado] = useState(false);
+  const travado = useRef(false);
 
   const carregar = useCallback(async () => {
     setFalhaCarga("");
@@ -201,6 +272,7 @@ function Diario(props: {
             jogadores: r.jogadores,
             aoVivo: partida.numero === partida.hoje,
             respostas: depths,
+            tempoMs: tempoTotal(partida.numero, partida.perguntas),
           }),
         );
       } catch (e) {
@@ -212,31 +284,54 @@ function Diario(props: {
     };
   }, [partida, tudoRespondido, mostrando, fim, cid, respondidas, onHistorico]);
 
-  const enviar = async (texto: string) => {
-    if (!partida || !proxima) return;
+  const registrar = (id: string, resposta: string, profundidade: number, passou: boolean) => {
+    setPartida((p) =>
+      p ? { ...p, respondidas: { ...p.respondidas, [id]: { resposta, profundidade, passou } } } : p,
+    );
+    setMostrando(id);
+    onGanho(profundidade);
+  };
+
+  const enviar = async (texto: string, info: { expirou: boolean; ms: number }) => {
+    if (!partida || !proxima || travado.current) return;
+    travado.current = true;
+    const alvo = proxima;
     setEnviando(true);
     setErro("");
     try {
+      if (!texto) throw new Error("");
       const r = await api<RespostaApi>("/api/responder", {
         escopo: "diario",
         dia: partida.numero,
-        promptId: proxima.id,
+        promptId: alvo.id,
         resposta: texto,
         cid,
       });
-      setResultados((x) => ({ ...x, [proxima.id]: r }));
-      setPartida((p) =>
-        p
-          ? {
-              ...p,
-              respondidas: { ...p.respondidas, [proxima.id]: { resposta: r.resposta, profundidade: r.profundidade } },
-            }
-          : p,
-      );
-      setMostrando(proxima.id);
+      salvarTempo(partida.numero, alvo.id, info.ms);
+      setResultados((x) => ({ ...x, [alvo.id]: r }));
+      registrar(alvo.id, r.resposta, r.profundidade, !!r.passou);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : "Erro ao enviar.");
+      if (info.expirou) {
+        // o ar acabou e a resposta não valeu: a pergunta fica com 0 m
+        try {
+          const r = await api<RespostaApi>("/api/responder", {
+            escopo: "diario",
+            dia: partida.numero,
+            promptId: alvo.id,
+            passou: true,
+            cid,
+          });
+          salvarTempo(partida.numero, alvo.id, info.ms);
+          setResultados((x) => ({ ...x, [alvo.id]: r }));
+          registrar(alvo.id, r.resposta, r.profundidade, !!r.passou);
+        } catch (e2) {
+          setErro(e2 instanceof Error ? e2.message : "Erro ao enviar.");
+        }
+      } else {
+        setErro(e instanceof Error ? e.message : "Erro ao enviar.");
+      }
     } finally {
+      travado.current = false;
       setEnviando(false);
     }
   };
@@ -266,7 +361,7 @@ function Diario(props: {
   );
 
   // 1) mostrando o resultado de uma resposta
-  if (mostrando && resultados[mostrando]) {
+  if (mostrando && (resultados[mostrando] || respondidas[mostrando]?.passou)) {
     const indice = partida.perguntas.findIndex((p) => p.id === mostrando);
     const pergunta = partida.perguntas[indice];
     return (
@@ -278,7 +373,11 @@ function Diario(props: {
           </span>
           {pergunta.texto}
         </div>
-        <CartaoResultado res={resultados[mostrando]} />
+        {respondidas[mostrando]?.passou ? (
+          <CartaoSemAr />
+        ) : (
+          <CartaoResultado res={resultados[mostrando]} />
+        )}
         <button className="btn" onClick={() => setMostrando(null)} autoFocus>
           {feitas >= total ? "[ VER MEU MERGULHO ]" : "[ PRÓXIMA PERGUNTA ]"}
         </button>
@@ -299,11 +398,13 @@ function Diario(props: {
     const zona = zonaDe(fim.total);
     const depths = partida.perguntas.map((p) => respondidas[p.id]?.profundidade ?? 0);
     const url = typeof window !== "undefined" ? window.location.origin : "";
+    const tempoMs = tempoTotal(partida.numero, partida.perguntas);
     const texto = textoCompartilhar({
       numero: partida.numero,
       total: fim.total,
       respostas: depths,
       percentil: fim.jogadores > 1 ? fim.percentil : null,
+      tempoMs,
       url,
     });
     const copiar = async () => {
@@ -330,6 +431,7 @@ function Diario(props: {
               "",
               `PROFUNDIDADE FINAL  ${formatar(fim.total)} m`,
               `${zona.nome.toUpperCase()} (${zona.tecnico})`,
+              ...(tempoMs ? [`TEMPO  ${formatarTempo(tempoMs)}`] : []),
             ])}
           </pre>
           <p>{zona.frase}</p>
@@ -355,7 +457,7 @@ function Diario(props: {
             {partida.perguntas
               .map((p, i) => {
                 const r = respondidas[p.id];
-                return `${i + 1}. ${(r?.resposta ?? "").slice(0, 18).padEnd(18)} ${barra(r?.profundidade ?? 0, 1000, 8)} ${String(
+                return `${i + 1}. ${(r?.passou ? "(o ar acabou)" : (r?.resposta ?? "")).slice(0, 18).padEnd(18)} ${barra(r?.profundidade ?? 0, 1000, 8)} ${String(
                   r?.profundidade ?? 0,
                 ).padStart(4)}m`;
               })
@@ -395,11 +497,13 @@ function Diario(props: {
           pergunta={proxima}
           enviando={enviando}
           erro={erro}
-          onEnviar={(t) => void enviar(t)}
+          segundos={ar}
+          onEnviar={(t, info) => void enviar(t, info)}
         />
       )}
       <div className="dim">
         Quanto mais rara a resposta, mais fundo você desce. Respostas óbvias mal contam.
+        {ar > 0 ? " Se o ar acabar, a pergunta vale 0 m." : ""}
       </div>
     </div>
   );
@@ -409,8 +513,8 @@ function Diario(props: {
 /* Mergulho livre                                                      */
 /* ------------------------------------------------------------------ */
 
-function Livre(props: { cid: string; onProfundidade: (m: number) => void }) {
-  const { cid, onProfundidade } = props;
+function Livre(props: { cid: string; ar: number; onProfundidade: (m: number) => void; onGanho: (g: number) => void }) {
+  const { cid, ar, onProfundidade, onGanho } = props;
   const [pergunta, setPergunta] = useState<Pergunta | null>(null);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [totalSessao, setTotalSessao] = useState(0);
@@ -422,6 +526,7 @@ function Livre(props: { cid: string; onProfundidade: (m: number) => void }) {
   const proximaPergunta = useCallback(async () => {
     setFalha("");
     setResultado(null);
+    setSemAr(false);
     setErro("");
     try {
       const usadas = lerLivre();
@@ -443,11 +548,16 @@ function Livre(props: { cid: string; onProfundidade: (m: number) => void }) {
     onProfundidade(Math.min(totalSessao, MAX_PROFUNDIDADE));
   }, [totalSessao, onProfundidade]);
 
-  const enviar = async (texto: string) => {
-    if (!pergunta) return;
+  const [semAr, setSemAr] = useState(false);
+  const travado = useRef(false);
+
+  const enviar = async (texto: string, info: { expirou: boolean; ms: number }) => {
+    if (!pergunta || travado.current) return;
+    travado.current = true;
     setEnviando(true);
     setErro("");
     try {
+      if (!texto) throw new Error("");
       const r = await api<RespostaApi>("/api/responder", {
         escopo: "livre",
         promptId: pergunta.id,
@@ -456,11 +566,21 @@ function Livre(props: { cid: string; onProfundidade: (m: number) => void }) {
       });
       salvarLivre([...new Set([...lerLivre(), pergunta.id])]);
       setResultado(r);
-      setTotalSessao((t) => t + (r.repetida ? 0 : r.profundidade));
+      const ganho = r.repetida ? 0 : r.profundidade;
+      setTotalSessao((t) => t + ganho);
       setRespondidas((n) => n + 1);
+      onGanho(ganho);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : "Erro ao enviar.");
+      if (info.expirou) {
+        salvarLivre([...new Set([...lerLivre(), pergunta.id])]);
+        setSemAr(true);
+        setRespondidas((n) => n + 1);
+        onGanho(0);
+      } else {
+        setErro(e instanceof Error ? e.message : "Erro ao enviar.");
+      }
     } finally {
+      travado.current = false;
       setEnviando(false);
     }
   };
@@ -483,10 +603,10 @@ function Livre(props: { cid: string; onProfundidade: (m: number) => void }) {
         MERGULHO LIVRE · sem limite · {respondidas} {respondidas === 1 ? "resposta" : "respostas"} ·{" "}
         {formatar(totalSessao)} m nesta sessão
       </div>
-      {resultado ? (
+      {resultado || semAr ? (
         <>
           <div className="bloco">{pergunta.texto}</div>
-          <CartaoResultado res={resultado} />
+          {resultado ? <CartaoResultado res={resultado} /> : <CartaoSemAr />}
           <button className="btn" onClick={() => void proximaPergunta()} autoFocus>
             [ PRÓXIMA PERGUNTA ]
           </button>
@@ -497,7 +617,8 @@ function Livre(props: { cid: string; onProfundidade: (m: number) => void }) {
           pergunta={pergunta}
           enviando={enviando}
           erro={erro}
-          onEnviar={(t) => void enviar(t)}
+          segundos={ar}
+          onEnviar={(t, info) => void enviar(t, info)}
         />
       )}
       <div className="dim">As respostas do modo livre valem para o ranking geral de cada pergunta, não para o diário.</div>
@@ -564,6 +685,8 @@ function Estatisticas(props: { historico: Historico; hoje: number | null }) {
   }));
   const maiorZona = Math.max(...porZona.map((p) => p.n), 1);
   const ultimos = registros.slice(-14).reverse();
+  const comTempo = registros.filter((r) => r.tempoMs);
+  const tempoMedio = comTempo.length ? comTempo.reduce((a, r) => a + (r.tempoMs ?? 0), 0) / comTempo.length : 0;
 
   return (
     <div>
@@ -575,6 +698,7 @@ function Estatisticas(props: { historico: Historico; hoje: number | null }) {
           `melhor mergulho      ${formatar(melhor.total)} m (#${melhor.numero})`,
           `sequência atual      ${hoje ? sequenciaAtual(historico, hoje) : 0}`,
           `melhor sequência     ${melhorSequencia(historico)}`,
+          ...(tempoMedio ? [`tempo médio          ${formatarTempo(tempoMedio)}`] : []),
         ])}
       </pre>
 
@@ -627,6 +751,18 @@ function Ajuda() {
         </p>
       </div>
       <div className="bloco">
+        <div className="dim">O AR</div>
+        <p>
+          Cada pergunta tem um relógio de <span className="acc">ar</span> (30 segundos, por padrão). Se o ar acabar,
+          o jogo envia o que você já digitou; se estiver vazio ou não valer, a pergunta fica com 0 m. O relógio para
+          enquanto a resposta é conferida. Seu tempo total aparece no final e no texto de compartilhar.
+        </p>
+        <p className="dim">
+          Prefere jogar sem pressa? Use o botão [AR] no topo para trocar entre 30 s, 20 s, 45 s ou sem relógio. A
+          pontuação é a mesma.
+        </p>
+      </div>
+      <div className="bloco">
         <div className="dim">ZONAS DO OCEANO</div>
         <pre>
           {ZONAS.map((z, i) => {
@@ -669,6 +805,15 @@ function Ajuda() {
 /* Raiz                                                                */
 /* ------------------------------------------------------------------ */
 
+function AvisoZona({ metros }: { metros: number }) {
+  const zona = zonaDe(metros);
+  return (
+    <div className="aviso-zona" role="status" key={zona.id}>
+      <pre>{caixa([`>> ${zona.nome.toUpperCase()} <<`, `${zona.tecnico} · ${formatar(zona.de)} m`])}</pre>
+    </div>
+  );
+}
+
 export default function Jogo() {
   const [aba, setAba] = useState<Aba>("diario");
   const [cid, setCid] = useState("");
@@ -678,10 +823,15 @@ export default function Jogo() {
   const [armazenamento, setArmazenamento] = useState<"redis" | "memoria">("redis");
   const [profundidade, setProfundidade] = useState(0);
   const [local, setLocal] = useState(true);
+  const [ar, setAr] = useState(30);
+  const [ganho, setGanho] = useState({ valor: 0, chave: 0 });
+  const [treme, setTreme] = useState(false);
+  const [aviso, setAviso] = useState(false);
 
   useEffect(() => {
     setCid(obterCid());
     setHistorico(lerHistorico());
+    setAr(lerAr());
     setLocal(["localhost", "127.0.0.1"].includes(window.location.hostname));
     api<{ hoje: number }>("/api/diario")
       .then((d) => setHoje(d.hoje))
@@ -690,6 +840,39 @@ export default function Jogo() {
 
   const metros = useContagem(profundidade);
   const fundo = corDeFundo(metros);
+
+  const trocarAr = () => {
+    const i = OPCOES_AR.indexOf(ar as (typeof OPCOES_AR)[number]);
+    const proximo = OPCOES_AR[(i + 1) % OPCOES_AR.length];
+    setAr(proximo);
+    salvarAr(proximo);
+  };
+
+  const aoGanhar = useCallback((valor: number) => {
+    setGanho((g) => ({ valor, chave: g.chave + 1 }));
+    if (valor >= 800) {
+      setTreme(true);
+      setTimeout(() => setTreme(false), 650);
+    }
+  }, []);
+
+  // aviso quando o mergulho cruza para uma zona mais funda
+  const zonaIdx = ZONAS.findIndex((z) => z.id === zonaDe(metros).id);
+  const zonaAnterior = useRef(zonaIdx);
+  useEffect(() => {
+    if (zonaIdx > zonaAnterior.current) {
+      setAviso(true);
+      setTreme(true);
+      const a = setTimeout(() => setTreme(false), 650);
+      const b = setTimeout(() => setAviso(false), 2600);
+      zonaAnterior.current = zonaIdx;
+      return () => {
+        clearTimeout(a);
+        clearTimeout(b);
+      };
+    }
+    zonaAnterior.current = zonaIdx;
+  }, [zonaIdx]);
 
   const irPara = (nova: Aba) => {
     if (nova === "diario") {
@@ -703,12 +886,19 @@ export default function Jogo() {
     setAba("diario");
   };
 
-  const mostrarColuna = aba === "diario" || aba === "livre";
+  const mostrarCena = aba === "diario" || aba === "livre";
+  const p = Math.min(1, metros / MAX_PROFUNDIDADE);
+  const luz = Math.max(0, 1 - metros / 1500);
 
   return (
-    <div className="app" style={{ ["--fundo" as string]: fundo }}>
+    <div
+      className="app"
+      style={{ ["--fundo" as string]: fundo, ["--p" as string]: p.toFixed(3), ["--luz" as string]: luz.toFixed(3) }}
+    >
       <Bolhas />
-      <div className="palco">
+      <div className="raios" aria-hidden="true" />
+      {aviso && <AvisoZona metros={metros} />}
+      <div className={"palco" + (treme ? " treme" : "")}>
         <header className="topo">
           <pre className="logo" aria-label="ABISSO">
             {LOGO}
@@ -725,23 +915,35 @@ export default function Jogo() {
                 [{a.rotulo}]
               </button>
             ))}
+            <button
+              className="btn suave"
+              onClick={trocarAr}
+              title="Trocar o tempo de ar de cada pergunta"
+              aria-label={ar ? `Tempo de ar: ${ar} segundos. Trocar.` : "Sem relógio de ar. Trocar."}
+            >
+              [AR: {ar ? `${ar}s` : "sem"}]
+            </button>
           </nav>
         </header>
 
         <main className="principal">
-          {mostrarColuna && <MiniBarra metros={metros} />}
+          {mostrarCena && (
+            <Cena metros={metros} ganho={ganho.valor} chaveGanho={ganho.chave} />
+          )}
           {aba === "diario" && (
             <Diario
               cid={cid}
               dia={dia}
+              ar={ar}
               onProfundidade={setProfundidade}
+              onGanho={aoGanhar}
               onHistorico={setHistorico}
               onArmazenamento={setArmazenamento}
               onTrocarDia={setDia}
               onLivre={() => irPara("livre")}
             />
           )}
-          {aba === "livre" && cid && <Livre cid={cid} onProfundidade={setProfundidade} />}
+          {aba === "livre" && cid && <Livre cid={cid} ar={ar} onProfundidade={setProfundidade} onGanho={aoGanhar} />}
           {aba === "arquivo" && <Arquivo hoje={hoje} historico={historico} onJogar={abrirDia} />}
           {aba === "stats" && <Estatisticas historico={historico} hoje={hoje} />}
           {aba === "ajuda" && <Ajuda />}
@@ -753,7 +955,7 @@ export default function Jogo() {
           )}
         </main>
 
-        {mostrarColuna && (
+        {mostrarCena && (
           <aside className="coluna" aria-hidden="true">
             <Coluna metros={metros} />
           </aside>

@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   } catch {
     return erro("Requisição inválida.");
   }
-  const { escopo, dia, promptId, resposta, cid } = corpo;
+  const { escopo, dia, promptId, resposta, cid, passou } = corpo;
 
   if (!cidValido(cid)) return erro("Identificador inválido.");
   if (typeof promptId !== "string") return erro("Pergunta inválida.");
@@ -51,11 +51,12 @@ export async function POST(req: Request) {
 
   const chaveResp = `r:${escopoChave}:${cid}`;
 
-  // Já respondeu? Devolve o resultado salvo com as estatísticas atualizadas.
-  const existente = await um(["HGET", chaveResp, pergunta.id]);
-  if (typeof existente === "string" && !existente.startsWith("p:")) {
+  // Já respondeu (ou já passou)? Devolve o resultado salvo com as estatísticas atualizadas.
+  const devolverSalvo = async (bruto: unknown): Promise<Response | null> => {
+    if (typeof bruto !== "string" || bruto.startsWith("p:")) return null;
     try {
-      const reg = JSON.parse(existente) as { n: string; a: string; d: number };
+      const reg = JSON.parse(bruto) as { n: string; a: string; d: number; x?: number };
+      if (reg.x) return Response.json({ ok: true, passou: true, repetida: true, resposta: "", profundidade: 0 });
       const { reais, exib } = await lerTudo(escopoChave, pergunta);
       const stats = calcular(pergunta, reais, exib, reg.n, zipfDaResposta(reg.a));
       return Response.json({
@@ -67,8 +68,23 @@ export async function POST(req: Request) {
         minha: { ...stats.minha, resposta: reg.a },
       });
     } catch {
-      /* registro corrompido: segue como resposta nova */
+      return null; // registro corrompido: segue como resposta nova
     }
+  };
+  const salvo = await devolverSalvo(await um(["HGET", chaveResp, pergunta.id]));
+  if (salvo) return salvo;
+
+  // O ar acabou e o jogador não respondeu: a pergunta vale 0 m (só no diário).
+  if (passou === true) {
+    if (escopoChave === "livre") return erro("Passar só existe no mergulho diário.");
+    const reg = JSON.stringify({ n: "", a: "", d: 0, x: 1 });
+    const ok = Number(await um(["HSETNX", chaveResp, pergunta.id, reg]));
+    if (ok === 0) {
+      const outro = await devolverSalvo(await um(["HGET", chaveResp, pergunta.id]));
+      return outro ?? erro("Sua resposta já está sendo processada.", 409);
+    }
+    await um(["EXPIRE", chaveResp, TTL_DIARIO]);
+    return Response.json({ ok: true, passou: true, repetida: false, resposta: "", profundidade: 0 });
   }
 
   const v = validar(resposta, pergunta.letra);

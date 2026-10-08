@@ -2,22 +2,30 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CRIATURAS, KRILL, barra, caixa, densidade } from "@/lib/ascii";
-import { LINHAS, MAX_PROFUNDIDADE, METROS_POR_LINHA, ZONAS, formatar, raridade, zonaDe } from "@/lib/zonas";
+import { LINHAS, METROS_POR_LINHA, ZONAS, formatar, raridade, zonaDe } from "@/lib/zonas";
 
 /* ---------- hooks ---------- */
 
-export function useContagem(alvo: number, ms = 1100): number {
-  const [valor, setValor] = useState(alvo);
-  const atual = useRef(alvo);
+function movimentoReduzido(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+type OpcoesContagem = { base?: number; porUnidade?: number; max?: number; inicial?: number };
+
+/** Anima um número até o alvo. A duração cresce com a distância percorrida. */
+export function useContagem(alvo: number, opc: OpcoesContagem = {}): number {
+  const { base = 900, porUnidade = 1.2, max = 3200, inicial } = opc;
+  const [valor, setValor] = useState(inicial ?? alvo);
+  const atual = useRef(inicial ?? alvo);
   useEffect(() => {
     const inicio = atual.current;
     if (inicio === alvo) return;
-    const reduz = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduz) {
+    if (movimentoReduzido()) {
       atual.current = alvo;
       setValor(alvo);
       return;
     }
+    const ms = Math.min(max, base + Math.abs(alvo - inicio) * porUnidade);
     const t0 = performance.now();
     let raf = 0;
     const passo = (t: number) => {
@@ -30,8 +38,54 @@ export function useContagem(alvo: number, ms = 1100): number {
     };
     raf = requestAnimationFrame(passo);
     return () => cancelAnimationFrame(raf);
-  }, [alvo, ms]);
+  }, [alvo, base, porUnidade, max]);
   return valor;
+}
+
+/** Revela um texto letra por letra. */
+export function useDigitar(texto: string, ms = 22): string {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (movimentoReduzido()) {
+      setN(texto.length);
+      return;
+    }
+    setN(0);
+    let i = 0;
+    const id = setInterval(() => {
+      i++;
+      setN(i);
+      if (i >= texto.length) clearInterval(id);
+    }, ms);
+    return () => clearInterval(id);
+  }, [texto, ms]);
+  return texto.slice(0, n);
+}
+
+/** Conta quantos itens já podem aparecer (um a cada `passo` ms, depois de `atraso`). */
+export function useRevelar(total: number, passo = 60, atraso = 0): number {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (movimentoReduzido()) {
+      setN(total);
+      return;
+    }
+    setN(0);
+    let i = 0;
+    let id: ReturnType<typeof setInterval> | undefined;
+    const inicio = setTimeout(() => {
+      id = setInterval(() => {
+        i++;
+        setN(i);
+        if (i >= total && id) clearInterval(id);
+      }, passo);
+    }, atraso);
+    return () => {
+      clearTimeout(inicio);
+      if (id) clearInterval(id);
+    };
+  }, [total, passo, atraso]);
+  return n;
 }
 
 export function useRelogio(destino: number | null): string {
@@ -49,6 +103,11 @@ export function useRelogio(destino: number | null): string {
     return () => clearInterval(id);
   }, [destino]);
   return texto;
+}
+
+export function formatarTempo(ms: number): string {
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 /* ---------- cenário ---------- */
@@ -114,14 +173,14 @@ export function Coluna({ metros }: { metros: number }) {
   );
 }
 
-export function MiniBarra({ metros }: { metros: number }) {
-  const zona = zonaDe(metros);
+/* ---------- relógio de ar ---------- */
+
+export function Oxigenio({ restante, total }: { restante: number; total: number }) {
+  const segundos = Math.ceil(restante);
+  const critico = restante <= 8;
   return (
-    <div className="mini" aria-hidden="true">
-      <pre>
-        <span className="acc">{KRILL}</span> [{barra(metros, MAX_PROFUNDIDADE, 20)}] {formatar(metros)} m
-      </pre>
-      <div className="dim">{zona.nome}</div>
+    <div className={"oxigenio" + (critico ? " critico" : "")} role="timer" aria-live="off" aria-label={`${segundos} segundos de ar`}>
+      <pre>{`AR [${barra(restante, total, 24)}] ${String(segundos).padStart(2)}s`}</pre>
     </div>
   );
 }
@@ -146,6 +205,22 @@ const virgula = (n: number) => (n < 0.1 ? "<0,1" : String(n).replace(".", ","));
 
 export function CartaoResultado({ res }: { res: Resultado }) {
   const rar = raridade(res.porcento / 100);
+  const d = Math.round(useContagem(res.profundidade, { base: 700, porUnidade: 0.9, max: 1600, inicial: 0 }));
+
+  const linhasCaixa = caixa([
+    "SUA RESPOSTA",
+    res.resposta,
+    "",
+    res.porcento < 0.1
+      ? "menos de 0,1% das pessoas dariam a mesma resposta"
+      : `${virgula(res.porcento)}% das pessoas dariam a mesma resposta`,
+    `raridade: ${rar.nome}`,
+    "",
+    `PROFUNDIDADE  +${formatar(d)} m`,
+    barra(d, 1000, 30),
+  ]).split("\n");
+  const visCaixa = useRevelar(linhasCaixa.length, 55, 250);
+
   const maximo = Math.max(...res.top.map((t) => t.porcento), res.porcento, 1);
   const noTop = res.top.some((t) => t.voce);
   const linhasTop = res.top.map((t, i) => ({
@@ -159,26 +234,30 @@ export function CartaoResultado({ res }: { res: Resultado }) {
       texto: `${String(res.posicao).padStart(2)}. ${res.resposta.slice(0, 13).padEnd(13)} ${barra(res.porcento, maximo, 9)} ${virgula(res.porcento).padStart(4)}%`,
     });
   }
-  const resumo = caixa([
-    "SUA RESPOSTA",
-    res.resposta,
-    "",
-    res.porcento < 0.1
-      ? "menos de 0,1% das pessoas dariam a mesma resposta"
-      : `${virgula(res.porcento)}% das pessoas dariam a mesma resposta`,
-    `raridade: ${rar.nome}`,
-    "",
-    `PROFUNDIDADE  +${formatar(res.profundidade)} m`,
-    barra(res.profundidade, 1000, 30),
-  ]);
+  const visTop = useRevelar(linhasTop.length, 120, 250 + linhasCaixa.length * 55 + 200);
+
+  const faisca =
+    res.profundidade >= 800 ? "* . + RESPOSTA QUASE ÚNICA! + . *" : res.profundidade >= 600 ? "+ . RESPOSTA RARA! . +" : "";
+
   return (
     <div className="bloco" role="status" aria-live="polite">
-      <pre className="acc">{resumo}</pre>
+      {faisca && (
+        <div className="faiscas warn" aria-hidden="true">
+          {faisca}
+        </div>
+      )}
+      <pre className="acc">
+        {linhasCaixa.map((l, i) => (
+          <span key={i} style={{ opacity: i < visCaixa ? 1 : 0 }}>
+            {l + (i < linhasCaixa.length - 1 ? "\n" : "")}
+          </span>
+        ))}
+      </pre>
       <div className="bloco">
         <div className="dim">O QUE O OCEANO RESPONDEU</div>
         <pre>
           {linhasTop.map((l, i) => (
-            <span key={i} className={l.voce ? "destaque" : undefined}>
+            <span key={i} className={l.voce ? "destaque" : undefined} style={{ opacity: i < visTop ? 1 : 0 }}>
               {l.texto + (l.voce ? "  <" : "") + "\n"}
             </span>
           ))}
@@ -194,13 +273,7 @@ export function CartaoResultado({ res }: { res: Resultado }) {
 
 /* ---------- fim do mergulho ---------- */
 
-export function Histograma({
-  hist,
-  faixa,
-}: {
-  hist: number[];
-  faixa: number;
-}) {
+export function Histograma({ hist, faixa }: { hist: number[]; faixa: number }) {
   // junta as 28 faixas de 250 m em 14 de 500 m
   const grupos = Array.from({ length: 14 }, (_, i) => (hist[i * 2] ?? 0) + (hist[i * 2 + 1] ?? 0));
   const meu = Math.min(13, Math.floor(faixa / 2));
@@ -212,10 +285,15 @@ export function Histograma({
   for (let r = ALTURA; r >= 1; r--) linhas.push(alturas.map((h) => (h >= r ? "# " : "  ")).join(""));
   linhas.push("-".repeat(28));
   linhas.push(Array.from({ length: 7 }, (_, i) => `${i}k`.padEnd(4)).join(""));
+  const vis = useRevelar(linhas.length, 70, 300);
   return (
     <pre aria-label="Distribuição das profundidades de hoje">
       {linhas.map((l, i) => (
-        <span key={i} className={i === 0 ? "acc" : i >= linhas.length - 2 ? "dim" : undefined}>
+        <span
+          key={i}
+          className={i === 0 ? "acc" : i >= linhas.length - 2 ? "dim" : undefined}
+          style={{ opacity: i < vis ? 1 : 0 }}
+        >
           {l + "\n"}
         </span>
       ))}
@@ -228,11 +306,13 @@ export function textoCompartilhar(opts: {
   total: number;
   respostas: number[];
   percentil: number | null;
+  tempoMs?: number;
   url: string;
 }): string {
   const zona = zonaDe(opts.total);
   const trilha = opts.respostas.map(densidade).join("");
   const linhas = [`ABISSO #${opts.numero} - ${formatar(opts.total)} m`, zona.nome, `[${trilha}]`];
+  if (opts.tempoMs && opts.tempoMs > 0) linhas.push(`Tempo: ${formatarTempo(opts.tempoMs)}`);
   if (opts.percentil !== null) linhas.push(`Mais fundo que ${opts.percentil}% dos mergulhadores`);
   linhas.push(opts.url);
   return linhas.join("\n");
@@ -240,5 +320,5 @@ export function textoCompartilhar(opts: {
 
 export function CriaturaDaZona({ metros }: { metros: number }) {
   const zona = zonaDe(metros);
-  return <pre className="acc">{CRIATURAS[zona.id]}</pre>;
+  return <pre className="acc criatura">{CRIATURAS[zona.id]}</pre>;
 }

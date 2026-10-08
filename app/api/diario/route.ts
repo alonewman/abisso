@@ -11,14 +11,14 @@ export async function GET(req: Request) {
   if (numero === null) return erro("Dia inválido.");
   const cid = url.searchParams.get("cid");
 
-  const respondidas: Record<string, { resposta: string; profundidade: number }> = {};
+  const respondidas: Record<string, { resposta: string; profundidade: number; passou?: boolean }> = {};
   if (cidValido(cid)) {
     const salvas = paraObjeto(await um(["HGETALL", `r:d:${numero}:${cid}`]));
     for (const [id, bruto] of Object.entries(salvas)) {
       if (bruto.startsWith("p:")) continue;
       try {
-        const r = JSON.parse(bruto) as { a: string; d: number };
-        respondidas[id] = { resposta: r.a, profundidade: r.d };
+        const r = JSON.parse(bruto) as { a: string; d: number; x?: number };
+        respondidas[id] = r.x ? { resposta: "", profundidade: 0, passou: true } : { resposta: r.a, profundidade: r.d };
       } catch {
         /* ignora registros ilegíveis */
       }
