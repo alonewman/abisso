@@ -1,63 +1,81 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { LARGURA, quadroDaCena } from "@/lib/cena";
-import { formatar, zonaDe } from "@/lib/zonas";
+import { posicaoKrill, quadroComoHtml, quadroDaCena } from "@/lib/cena";
+import { formatar } from "@/lib/zonas";
 
-/** Janela ASCII para o oceano: o krill nada no lugar e o cenário passa por ele conforme a profundidade muda. */
+/** Cena ASCII em tela cheia, atrás de toda a interface. O krill nada no lugar e o oceano passa por ele. */
 export function Cena({ metros, ganho, chaveGanho }: { metros: number; ganho: number; chaveGanho: number }) {
-  const [t, setT] = useState(0);
-  const [reduz, setReduz] = useState(false);
-  const mem = useRef({ m: metros, t: 0, v: 0 });
+  const pre = useRef<HTMLPreElement>(null);
+  const medida = useRef<HTMLSpanElement>(null);
+  const [tam, setTam] = useState({ w: 80, h: 30, cw: 8, lh: 16 });
+  const estado = useRef({ metros, t: 0, v: 0, ult: 0, m: metros, reduz: false });
+  estado.current.metros = metros;
 
+  // mede o caractere e calcula quantas colunas/linhas cabem na tela
   useEffect(() => {
-    const r = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    setReduz(r);
-    if (r) return;
-    const inicio = performance.now();
-    const id = setInterval(() => setT((performance.now() - inicio) / 1000), 66);
-    return () => clearInterval(id);
+    const medir = () => {
+      const el = medida.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const cw = r.width / 10 || 8;
+      const lh = r.height || 16;
+      setTam({
+        w: Math.min(220, Math.ceil(window.innerWidth / cw) + 1),
+        h: Math.min(90, Math.ceil(window.innerHeight / lh) + 1),
+        cw,
+        lh,
+      });
+    };
+    medir();
+    window.addEventListener("resize", medir);
+    return () => window.removeEventListener("resize", medir);
   }, []);
 
-  // velocidade de descida (m/s), suavizada, para os riscos de movimento
-  const dt = t - mem.current.t;
-  if (dt > 0.03) {
-    const instantanea = (metros - mem.current.m) / dt;
-    mem.current.v = mem.current.v * 0.4 + instantanea * 0.6;
-    mem.current.m = metros;
-    mem.current.t = t;
-  }
-  const velocidade = reduz ? 0 : Math.min(1, Math.max(0, mem.current.v / 450));
+  useEffect(() => {
+    const s = estado.current;
+    s.reduz = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const inicio = performance.now();
+    const desenhar = () => {
+      const agora = (performance.now() - inicio) / 1000;
+      const dt = agora - s.ult;
+      if (dt > 0.03) {
+        const inst = (s.metros - s.m) / dt;
+        s.v = s.v * 0.4 + inst * 0.6;
+        s.m = s.metros;
+        s.ult = agora;
+      }
+      const vel = s.reduz ? 0 : Math.min(1, Math.max(0, s.v / 450));
+      const quadro = quadroDaCena(s.metros, s.reduz ? 0 : agora, vel, tam.w, tam.h);
+      if (pre.current) pre.current.innerHTML = quadroComoHtml(quadro);
+    };
+    desenhar();
+    if (s.reduz) {
+      const id = setInterval(desenhar, 400); // quadro parado, só acompanha a profundidade
+      return () => clearInterval(id);
+    }
+    const id = setInterval(desenhar, 90);
+    return () => clearInterval(id);
+  }, [tam]);
 
-  const quadro = quadroDaCena(metros, t, velocidade);
-  const zona = zonaDe(Math.max(0, metros));
-  const borda = "+" + "-".repeat(LARGURA) + "+";
-
+  const k = posicaoKrill(tam.w, tam.h);
   return (
-    <div className="cena" role="img" aria-label={`Mergulho a ${formatar(Math.max(0, metros))} metros: ${zona.nome}`}>
-      <pre aria-hidden="true">
-        <span className="c-borda">{borda + "\n"}</span>
-        {quadro.map((linha, y) => (
-          <span key={y}>
-            <span className="c-borda">|</span>
-            {linha.map((trecho, i) => (
-              <span key={i} className={(trecho.cls ? "c-" + trecho.cls + " " : "") + (trecho.bg ? "f-" + trecho.bg : "")}>
-                {trecho.texto}
-              </span>
-            ))}
-            <span className="c-borda">{"|\n"}</span>
-          </span>
-        ))}
-        <span className="c-borda">{borda}</span>
-      </pre>
-      <div className="cena-hud">
-        <span className="acc">{formatar(Math.max(0, metros))} m</span> <span className="dim">· {zona.nome}</span>
+    <>
+      <div className="cena-tela" aria-hidden="true">
+      <span ref={medida} className="cena-medida">
+        MMMMMMMMMM
+      </span>
+      <pre ref={pre} style={{ lineHeight: `${tam.lh}px` }} />
       </div>
       {ganho > 0 && (
-        <div key={chaveGanho} className="ganho" aria-hidden="true">
+        <div
+          key={chaveGanho}
+          className="ganho"
+          style={{ left: (k.coluna + 18) * tam.cw, top: (k.linha - 4) * tam.lh }}
+        >
           +{formatar(ganho)} m
         </div>
       )}
-    </div>
+    </>
   );
 }

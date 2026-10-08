@@ -13,7 +13,12 @@ todo mundo que jogou aquele mesmo mergulho** (percentil + histograma), com texto
 - **Livre**: perguntas sem limite, para treinar. As respostas contam para o ranking geral de cada pergunta.
 - **Arquivo**: os últimos 30 mergulhos, para quem perdeu um dia.
 - **Estatísticas**: mergulhos feitos, profundidade média, melhor mergulho, sequência, onde você costuma parar.
-- **98 perguntas** no banco (14 dias sem repetir), algumas com letra obrigatória, cada uma com dezenas de respostas ranqueadas.
+- **Mergulho diário com categorias fechadas** (como o Krillion): 105 perguntas em 15 dias sem repetir ("Um rio do Brasil",
+  "Um elemento da tabela periódica", "Um personagem da Disney"...), cada uma com 100 a 300 respostas ordenadas por
+  familiaridade. Só vale resposta que pertence à categoria (ou que pelo menos 2 jogadores já deram). O banco antigo de
+  perguntas abertas (98) ficou para o mergulho livre.
+- **Tela cheia**: a cena ASCII ocupa a tela toda (céu, barco, paredes de rocha, água em degradê, baleia, lula-gigante,
+  leito do oceano) e a interface é só uma barra fina e um painel no centro.
 - **Cena de descida em ASCII**: o krill nada enquanto o cenário passa por ele (neve marinha, criaturas de cada zona,
   régua de profundidade, bolhas, riscos de velocidade). A luz some e a tela escurece conforme você desce.
 - **Botão DESCER**: o krill espera na superfície (barco, sol, céu) e a contagem 3-2-1 começa o mergulho.
@@ -89,7 +94,9 @@ Os dados de frequência vêm do projeto [wordfreq](https://github.com/rspeer/wor
 
 ## Adicionar perguntas
 
-Edite `lib/prompts.ts`. Cada linha é `pergunta | letra obrigatória (ou vazio) | respostas, da mais comum para a menos comum`.
+Perguntas do diário: crie/edite arquivos em `data/novas/*.txt` (linhas `!texto|LETRA|resposta1,resposta2,...`; o `!` marca categoria fechada), confira com `npx tsx scripts/checar_banco.ts arquivo.txt` e rode `npx tsx scripts/montar_banco.ts` para gerar `lib/banco-novo.ts`.
+
+Perguntas abertas do modo livre: edite `lib/prompts.ts`. Cada linha é `pergunta | letra obrigatória (ou vazio) | respostas, da mais comum para a menos comum`.
 Escreva pelo menos 30 a 50 respostas por pergunta: quanto melhor a lista, mais justa a raridade.
 Acrescente **sempre no fim e em grupos de 7**, para não embaralhar os dias já jogados. Depois rode `npm run verificar`:
 ele checa se as respostas são válidas, sem duplicatas, se respeitam a letra, se nenhum dia repete pergunta e se a

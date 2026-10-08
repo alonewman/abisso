@@ -94,7 +94,12 @@ export async function POST(req: Request) {
   let zipf = 5;
   if (!modeloDe(pergunta).itens.has(v.norm)) {
     const analise = analisar(v.exibir);
-    if (analise.conhecida) {
+    if (pergunta.fechada) {
+      // categoria fechada: só vale o que pertence à lista ou o que outros jogadores já usaram
+      const vezes = Number(await um(["HGET", `c:${escopoChave}:${pergunta.id}`, v.norm])) || 0;
+      if (vezes < 2) return erro("Essa resposta não faz parte desta categoria (ou a escrita está diferente). Tente outra!");
+      zipf = analise.conhecida ? analise.zipf : 2.5;
+    } else if (analise.conhecida) {
       zipf = analise.zipf;
     } else {
       const vezes = Number(await um(["HGET", `c:${escopoChave}:${pergunta.id}`, v.norm])) || 0;

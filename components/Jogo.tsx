@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LOGO, barra, caixa } from "@/lib/ascii";
+import { barra, caixa } from "@/lib/ascii";
 import { Cena } from "./Cena";
 import { MAX_PROFUNDIDADE, ZONAS, formatar, zonaDe } from "@/lib/zonas";
 import {
@@ -22,9 +22,7 @@ import {
   type Historico,
 } from "@/lib/cliente";
 import {
-  Bolhas,
   CartaoResultado,
-  Coluna,
   CriaturaDaZona,
   Histograma,
   Oxigenio,
@@ -981,50 +979,59 @@ export default function Jogo() {
     setAba("diario");
   };
 
-  const mostrarCena = aba === "diario" || aba === "livre";
   const p = Math.min(1, Math.max(0, metros) / MAX_PROFUNDIDADE);
   const luz = Math.max(0, 1 - metros / 1500);
+  const zonaAtual = zonaDe(Math.max(0, metros));
+  const [menu, setMenu] = useState(false);
+  const rotuloAba = NOMES_ABAS.find((a) => a.id === aba)?.rotulo ?? "";
 
   return (
-    <div
-      className="app"
-      style={{ ["--fundo" as string]: fundo, ["--p" as string]: p.toFixed(3), ["--luz" as string]: luz.toFixed(3) }}
-    >
-      <Bolhas />
-      <div className="raios" aria-hidden="true" />
+    <div className="app" style={{ ["--fundo" as string]: fundo, ["--p" as string]: p.toFixed(3), ["--luz" as string]: luz.toFixed(3) }}>
+      <Cena metros={metros} ganho={ganho.valor} chaveGanho={ganho.chave} />
       {aviso && <AvisoZona metros={metros} />}
-      <div className={"palco" + (treme ? " treme" : "")}>
-        <header className="topo">
-          <pre className="logo" aria-label="ABISSO">
-            {LOGO}
-          </pre>
-          <div className="sub">o mergulho diário · 7 perguntas · quanto mais rara a resposta, mais fundo você vai</div>
-          <nav className="nav" aria-label="Menu">
+
+      <header className="barra">
+        <button className="btn marca" onClick={() => irPara("diario")} aria-label="ABISSO, ir para o mergulho diário">
+          ABISSO
+        </button>
+        <span className="hud" aria-live="off">
+          <span className="acc">{formatar(Math.max(0, metros))} m</span>
+          <span className="dim"> · {zonaAtual.nome}</span>
+        </span>
+        <span className="barra-fim">
+          <button
+            className="btn suave"
+            onClick={trocarAr}
+            title="Trocar o tempo de ar de cada pergunta"
+            aria-label={ar ? `Tempo de ar: ${ar} segundos. Trocar.` : "Sem relógio de ar. Trocar."}
+          >
+            [AR {ar ? `${ar}s` : "sem"}]
+          </button>
+          <button className="btn" onClick={() => setMenu((m) => !m)} aria-expanded={menu} aria-haspopup="true">
+            [{menu ? "X" : rotuloAba}]
+          </button>
+        </span>
+        {menu && (
+          <nav className="menu" aria-label="Menu">
             {NOMES_ABAS.map((a) => (
               <button
                 key={a.id}
                 className={"btn" + (aba === a.id ? " ativo" : "")}
-                onClick={() => irPara(a.id)}
+                onClick={() => {
+                  irPara(a.id);
+                  setMenu(false);
+                }}
                 aria-current={aba === a.id ? "page" : undefined}
               >
-                [{a.rotulo}]
+                {a.rotulo}
               </button>
             ))}
-            <button
-              className="btn suave"
-              onClick={trocarAr}
-              title="Trocar o tempo de ar de cada pergunta"
-              aria-label={ar ? `Tempo de ar: ${ar} segundos. Trocar.` : "Sem relógio de ar. Trocar."}
-            >
-              [AR: {ar ? `${ar}s` : "sem"}]
-            </button>
           </nav>
-        </header>
+        )}
+      </header>
 
-        <main className="principal">
-          {mostrarCena && (
-            <Cena metros={metros} ganho={ganho.valor} chaveGanho={ganho.chave} />
-          )}
+      <div className={"palco" + (treme ? " treme" : "")}>
+        <main className="painel">
           {aba === "diario" && (
             <Diario
               cid={cid}
@@ -1039,7 +1046,9 @@ export default function Jogo() {
               onLivre={() => irPara("livre")}
             />
           )}
-          {aba === "livre" && cid && <Livre cid={cid} ar={ar} onSuperficie={setSuperficie} onProfundidade={setProfundidade} onGanho={aoGanhar} />}
+          {aba === "livre" && cid && (
+            <Livre cid={cid} ar={ar} onSuperficie={setSuperficie} onProfundidade={setProfundidade} onGanho={aoGanhar} />
+          )}
           {aba === "arquivo" && <Arquivo hoje={hoje} historico={historico} onJogar={abrirDia} />}
           {aba === "stats" && <Estatisticas historico={historico} hoje={hoje} />}
           {aba === "ajuda" && <Ajuda />}
@@ -1050,18 +1059,9 @@ export default function Jogo() {
             </div>
           )}
         </main>
-
-        {mostrarCena && (
-          <aside className="coluna" aria-hidden="true">
-            <Coluna metros={metros} />
-          </aside>
-        )}
-
-        <footer className="rodape">
-          <pre>{`~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~`}</pre>
-          ABISSO · feito de ASCII e curiosidade · seus dados de jogo ficam só neste navegador
-        </footer>
       </div>
+
+      <footer className="rodape">ABISSO · seus dados de jogo ficam só neste navegador</footer>
     </div>
   );
 }

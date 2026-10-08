@@ -1,10 +1,10 @@
 // Confere o banco de perguntas e a lógica principal. Rode com: npm run verificar
-import { PERGUNTAS, perguntasDoDia } from "../lib/prompts";
+import { DIARIAS, PERGUNTAS, perguntasDoDia } from "../lib/prompts";
 import { normalizar, validar } from "../lib/normalizar";
 import { analisar } from "../lib/dicionario";
 import { calcular, modeloDe } from "../lib/estatisticas";
 import { profundidadeDoShare, zonaDe } from "../lib/zonas";
-import { ALTURA, LARGURA, quadroComoTexto, quadroDaCena } from "../lib/cena";
+import { quadroComoTexto, quadroDaCena } from "../lib/cena";
 
 let falhas = 0;
 const falha = (msg: string) => {
@@ -37,7 +37,7 @@ console.log(
 );
 
 // 2) dias: 7 perguntas distintas e ciclo sem repetição
-const ciclo = Math.floor(PERGUNTAS.length / 7);
+const ciclo = Math.floor(DIARIAS.length / 7);
 const vistasNoCiclo = new Set<string>();
 for (let n = 1; n <= ciclo; n++) {
   const dia = perguntasDoDia(n);
@@ -89,7 +89,7 @@ for (const [share, min, max] of casos) {
 if (zonaDe(0).id !== "epi" || zonaDe(7000).id !== "hadal") falha("zonas erradas");
 
 // 7) raridade SEM nenhum jogador: o modelo sozinho já ordena as respostas
-const fruta = PERGUNTAS[0]; // "Uma fruta"
+const fruta = PERGUNTAS.find((p) => p.texto === "Uma fruta")!;
 const semJogadores = (resposta: string, zipf: number) => {
   const n = normalizar(resposta);
   // simula o primeiro jogador do mundo (só ele respondeu)
@@ -127,13 +127,15 @@ const muitos = calcular(fruta, { banana: "3000", maca: "500", __t: "10000" }, {}
 if (muitos.estimativa) falha("com 10000 jogadores a estimativa deveria ter acabado");
 if (Math.abs(muitos.compartilhamento - 0.3) > 0.02) falha(`share com muitos jogadores esperado ~0.3, veio ${muitos.compartilhamento}`);
 
-// 10) cena da descida: tamanho fixo, krill sempre visível, deterministica
-for (const m of [-14, 0, 120, 900, 2400, 5800, 7000]) {
-  for (const v of [0, 1]) {
-    const linhas = quadroComoTexto(quadroDaCena(m, 3.3, v));
-    if (linhas.length !== ALTURA || linhas.some((l) => l.length !== LARGURA)) falha(`cena ${m} m com tamanho errado`);
-    if (!linhas.join("\n").includes("(o")) falha(`krill não aparece na cena a ${m} m`);
-    if (JSON.stringify(linhas) !== JSON.stringify(quadroComoTexto(quadroDaCena(m, 3.3, v)))) falha("cena não é determinística");
+// 10) cena da descida: tamanho certo, krill visível, determinística, em vários tamanhos de tela
+for (const [w, h] of [[44, 18], [120, 40], [70, 26], [200, 80]]) {
+  for (const m of [-14, 0, 120, 900, 2400, 5800, 7000, 7100]) {
+    for (const v of [0, 1]) {
+      const linhas = quadroComoTexto(quadroDaCena(m, 3.3, v, w, h));
+      if (linhas.length !== h || linhas.some((l) => l.length !== w)) falha(`cena ${w}x${h} a ${m} m com tamanho errado`);
+      if (!linhas.join("\n").includes("(o")) falha(`krill não aparece na cena ${w}x${h} a ${m} m`);
+      if (JSON.stringify(linhas) !== JSON.stringify(quadroComoTexto(quadroDaCena(m, 3.3, v, w, h)))) falha("cena não é determinística");
+    }
   }
 }
 

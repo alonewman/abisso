@@ -9,6 +9,9 @@
 // Para adicionar perguntas: acrescente SEMPRE no fim, em grupos de 7 (uma "semana" de perguntas),
 // para não embaralhar os dias já jogados. Depois rode `npm run verificar`.
 
+import { BANCO_NOVO } from "./banco-novo";
+
+// Banco antigo (perguntas abertas): usado só no mergulho livre.
 const BANCO = `
 Uma fruta||banana,maçã,laranja,uva,morango,melancia,manga,abacaxi,mamão,limão,pera,melão,maracujá,goiaba,abacate,kiwi,pêssego,ameixa,cereja,coco,caju,acerola,jabuticaba,tangerina,mexerica,framboesa,amora,figo,caqui,lichia,romã,carambola,graviola,cupuaçu,açaí,pitaya,nectarina,damasco,mirtilo,cajá,pitanga,jaca,tamarindo,seriguela,umbu,tâmara,toranja,lima,groselha,bergamota,fruta-do-conde,jambo
 Um animal de estimação||cachorro,gato,peixe,coelho,hamster,papagaio,tartaruga,passarinho,cavalo,porquinho-da-índia,calopsita,periquito,cobra,furão,galinha,pato,rato,canário,iguana,jabuti,lagarto,aranha,porco,ovelha,cabra,chinchila,coruja,sapo,camaleão,tarântula,pássaro,cachorrinho,gatinho,pinguim,macaco,pomba,tucano,boi,vaca,burro,lebre,esquilo,sagui,pônei,formiga,tigre,leão,galo,ganso
@@ -115,25 +118,37 @@ export type Pergunta = {
   texto: string;
   letra: string | null;
   comuns: string[];
+  /** categoria fechada: só vale resposta que pertence à lista (ou que outros jogadores já usaram) */
+  fechada: boolean;
 };
 
 export type PerguntaPublica = { id: string; texto: string; letra: string | null };
 
-export const PERGUNTAS: Pergunta[] = BANCO.trim()
-  .split("\n")
-  .map((l) => l.trim())
-  .filter(Boolean)
-  .map((linha, i) => {
-    const [texto, letra, comuns] = linha.split("|");
-    return {
-      id: "p" + String(i + 1).padStart(3, "0"),
-      texto: texto.trim(),
-      letra: (letra ?? "").trim() || null,
-      comuns: (comuns ?? "").split(",").map((s) => s.trim()).filter(Boolean),
-    };
-  });
+function ler(texto: string, prefixo: string): Pergunta[] {
+  return texto
+    .trim()
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((linha, i) => {
+      const [bruto, letra, comuns] = linha.split("|");
+      return {
+        id: prefixo + String(i + 1).padStart(3, "0"),
+        texto: bruto.replace(/^!/, "").trim(),
+        letra: (letra ?? "").trim() || null,
+        comuns: (comuns ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+        fechada: bruto.startsWith("!"),
+      };
+    });
+}
 
-const USADAS = Math.floor(PERGUNTAS.length / 7) * 7;
+/** Perguntas do mergulho diário: categorias fechadas, com listas longas ordenadas por familiaridade. */
+export const DIARIAS: Pergunta[] = ler(BANCO_NOVO, "n");
+const ANTIGAS: Pergunta[] = ler(BANCO, "p");
+/** Todas (o mergulho livre sorteia entre elas). */
+export const PERGUNTAS: Pergunta[] = [...DIARIAS, ...ANTIGAS];
+
+const USADAS = Math.floor(DIARIAS.length / 7) * 7;
 const DIAS_POR_CICLO = USADAS / 7;
 
 function mulberry32(semente: number) {
@@ -164,7 +179,7 @@ export function perguntasDoDia(numero: number): Pergunta[] {
   const dentro = n % DIAS_POR_CICLO;
   return permutacao(ciclo)
     .slice(dentro * 7, dentro * 7 + 7)
-    .map((i) => PERGUNTAS[i]);
+    .map((i) => DIARIAS[i]);
 }
 
 export function perguntaPorId(id: string): Pergunta | undefined {
